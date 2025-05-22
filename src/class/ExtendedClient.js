@@ -24,6 +24,7 @@ const { DeezerPlugin } = require("@distube/deezer");
 const { SoundCloudPlugin } = require("@distube/soundcloud");
 const srDb = require("../schemas/stream");
 const { run } = require("../otherEvents/twitch/streamStart");
+reuiqre("dotenv").config()
 
 module.exports = class extends Client {
   collection = {
