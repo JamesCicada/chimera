@@ -1,0 +1,371 @@
+const {
+	ChatInputCommandInteraction,
+	SlashCommandBuilder,
+	EmbedBuilder,
+	ChannelType,
+	PermissionFlagsBits,
+	Message,
+} = require("discord.js");
+const duration = require("duration-js");
+const ExtendedClient = require("../../../class/ExtendedClient");
+const tempDb = require("../../../schemas/tempvc");
+const { getOwner, getData } = require("../../../Functions/tempyFuncs");
+module.exports = {
+	structure: {
+		name: "tempy",
+		description: "Manage your temp vc",
+		aliases: ["v", "vc", "tempvc"],
+		cooldown: 0,
+	},
+	/**
+	 * @param {ExtendedClient} client
+	 * @param {Message} message
+	 */
+	run: async (client, message, args) => {
+		const { guild, member } = message;
+		const user = message.author;
+		let command = args[0];
+		console.log(command);
+		const interaction = message;
+
+		alias('name', 'rename');
+		alias('limit', 'setlimit');
+		alias('kick', 'reject');
+		alias('lock', 'close');
+		alias('unlock', 'open');
+		alias('perm', 'allow');
+		alias('owner', 'transfer');
+		alias('show', 'unhide');
+		if (!member.voice.channel)
+			return await message.reply({
+				content: "You are not in a vc!",
+			});
+		let tData = await tempDb.findOne({
+			guildId: guild.id,
+			cat: member.voice.channel.parentId,
+		});
+		if (!tData)
+			return await message.reply({
+				content: "You are not in a temp vc!",
+			});
+		const isOwner =
+			(await getOwner(
+				tData.creatorsId,
+				member.voice.channel.id,
+				guild.id
+			)) === user.id;
+		switch (command) {
+			case "name": {
+				if (!isOwner)
+					return await message.reply({
+						content: "You are not the owner of this temp vc!",
+					});
+				const name = args[1];
+				await member.voice.channel
+					.setName(name, ["Chimera Tempvc rename"])
+					.catch((e) => {
+						return message.reply({
+							content: `Error: ${e.message}`,
+						});
+					});
+				await interaction.reply({
+					content: `Name changed to ${name}`,
+				});
+				break;
+			}
+			case "limit": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				const limit =
+					parseInt(args[1]) <= 100 ? parseInt(args[1]) : 0;
+				if (isNaN(limit))
+					return await interaction.reply({
+						content:
+							"Invalid limit, must be a number between 0 and 99",
+						ephemeral: true,
+					});
+				await member.voice.channel.setUserLimit(limit).catch((e) => {
+					return interaction.reply({
+						content: `Error: ${e.message}`,
+						ephemeral: true,
+					});
+				});
+				await interaction.reply({
+					content: `Limit changed to ${limit}`,
+				});
+				break;
+			}
+			case "kick": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				const mem =
+					message.mentions.members.first() ||
+					message.guild.members.cache.get(args[1]);
+				if (mem.id === user.id)
+					return await interaction.reply({
+						content: "You can't kick yourself!",
+						ephemeral: true,
+					});
+				await member.voice.channel.permissionOverwrites
+					.edit(mem.id, {
+						ViewChannel: null,
+						Connect: false,
+					})
+					.catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				if (mem.voice.channelId == member.voice.channelId)
+					await mem.voice.setChannel(tData.creatorsId).catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				let tempVc = tData.temps.find(
+					(temp) => temp.vcId === member.voice.channelId
+				);
+				tempVc.rejected.push(mem.id);
+				await tempDb.findOneAndUpdate(
+					{ guildId: guild.id, creatorsId: tData.creatorsId },
+					{ $set: { temps: tData.temps } },
+					{ upsert: true }
+				);
+				await interaction.reply({
+					content: `Kicked ${mem.user.username}`,
+				});
+
+				break;
+			}
+			case "lock": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				await member.voice.channel.permissionOverwrites
+					.edit(member.voice.channel.guild.roles.everyone, {
+						Connect: false,
+					})
+					.catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				await interaction.reply({
+					content: `This temp vc is now Locked!`,
+				});
+				break;
+			}
+			case "unlock": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				await member.voice.channel.permissionOverwrites
+					.edit(member.voice.channel.guild.roles.everyone, {
+						Connect: true,
+					})
+					.catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				await interaction.reply({
+					content: `This temp vc is now Unlocked!`,
+				});
+				break;
+			}
+			case "owner": {
+				let tempVc = tData.temps.find(
+					(temp) => temp.vcId === member.voice.channelId
+				);
+				const newOwner =
+					message.mentions.members.first() ||
+					message.guild.members.cache.get(args[1]);
+				if (!newOwner) {
+					return interaction.reply({
+						content: `Current owner: <@${tempVc.ownerId}>`,
+					});
+				} else {
+					if (!isOwner)
+						return await interaction.reply({
+							content: "You are not the owner of this temp vc!",
+							ephemeral: true,
+						});
+					if (newOwner.user.bot)
+						return await interaction.reply({
+							content: `Bots can't own temp vcs!`,
+							ephemeral: true,
+						});
+					if (newOwner.voice.channelId !== member.voice.channelId)
+						return await interaction.reply({
+							content: `Provided user must be in the same voice channel as you!`,
+							ephemeral: true,
+						});
+					let tempVc = tData.temps.find(
+						(temp) => temp.vcId === member.voice.channelId
+					);
+					tempVc.ownerId = newOwner.id;
+					await tempDb.findOneAndUpdate(
+						{ guildId: guild.id, creatorsId: tData.creatorsId },
+						{ $set: { temps: tData.temps } },
+						{ upsert: true }
+					);
+					await member.voice.channel.permissionOverwrites(newOwner.id, {
+						Connect: true,
+						ViewChannel: true,
+					})
+						.catch((e) => {
+							return interaction.reply({
+								content: `Error: ${e.message}`,
+								ephemeral: true,
+							});
+						});
+					await interaction.reply({
+						content: `Changed owner to ${newOwner.user.username}`,
+					});
+				}
+				break;
+			}
+			case "help": {
+				const embed = new EmbedBuilder()
+					.setTitle("Tempy Commands")
+					.setDescription(
+						`
+						> **Aliases:** tempy, tempvc, v, vc
+
+                        > **name:** Change the name of the temp vc (owner only)
+
+                        > **limit:** Change the limit of the temp vc (owner only)
+
+                        > **kick:** Kick a user from the temp vc (owner only)
+						
+						> **perm:** Change the permissions of the temp vc (owner only)
+
+                        > **lock:** Lock the temp vc (owner only)
+
+						> **unlock:** Unlock the temp vc (owner only)
+
+						> **hide:** Hide the temp vc (owner only)
+
+						> **show:** Show the temp vc (owner only)
+
+                        > **owner:** Check or change the owner of the temp vc
+
+                        > **claim:** Claim the temp vc if the owner is gone
+                        `
+					);
+				return interaction.reply({
+					embeds: [embed],
+				});
+				break;
+			}
+			case "claim": {
+				let tempVc = tData.temps.find(
+					(temp) => temp.vcId === member.voice.channelId
+				);
+				let currentOwner = guild.members.cache.get(tempVc.ownerId);
+				if (
+					currentOwner &&
+					currentOwner.voice.channelId === tempVc.vcId
+				) {
+					return await interaction.reply({
+						content: `owner ${currentOwner.user.username} is in this vc!`,
+						ephemeral: true,
+					});
+				}
+				tempVc.ownerId = member.id;
+				await tempDb.findOneAndUpdate(
+					{ guildId: guild.id, creatorsId: tData.creatorsId },
+					{ $set: { temps: tData.temps } },
+					{ upsert: true }
+				);
+				await interaction.reply({
+					content: `New owner is ${member}!`,
+				});
+				break;
+			}
+			case "perm": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				const mem =
+					message.mentions.members.first() ||
+					message.guild.members.cache.get(args[1]);
+				member.voice.channel.permissionOverwrites
+					.edit(mem.user.id, { Connect: true, ViewChannel: true })
+					.catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				await interaction.reply({
+					content: ` ${mem} can join this vc!`,
+				});
+				break;
+			}
+			case "hide": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				const status = options.getBoolean("hide-status");
+				await member.voice.channel.permissionOverwrites
+					.edit(member.voice.channel.guild.roles.everyone, {
+						ViewChannel: false
+					})
+					.catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				await interaction.reply({
+					content: `Vc is now hidden`,
+				});
+				break;
+			}
+			case "show": {
+				if (!isOwner)
+					return await interaction.reply({
+						content: "You are not the owner of this temp vc!",
+						ephemeral: true,
+					});
+				const status = options.getBoolean("hide-status");
+				await member.voice.channel.permissionOverwrites
+					.edit(member.voice.channel.guild.roles.everyone, {
+						ViewChannel: null,
+					})
+					.catch((e) => {
+						return interaction.reply({
+							content: `Error: ${e.message}`,
+							ephemeral: true,
+						});
+					});
+				await interaction.reply({
+					content: `Vc is now shown`,
+				});
+				break;
+			}
+		}
+		function alias(origin, alias) {
+			if (command == alias) command = origin;
+		}
+	},
+};
