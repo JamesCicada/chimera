@@ -69,7 +69,7 @@ module.exports = {
                     });
                     channel.send({
                         embeds: [
-                            new EmbedBuilder().setDescription(`${member} deleted his ticket but only mods decide when to delete the channel`)
+                            new EmbedBuilder().setDescription(`${member} deleted this ticket but only mods decide when to delete the channel`)
                         ],
                     })
                 }

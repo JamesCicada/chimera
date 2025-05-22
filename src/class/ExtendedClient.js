@@ -20,12 +20,13 @@ const memberDb = require("../schemas/member");
 const { DisTube } = require("distube");
 const { SpotifyPlugin } = require("@distube/spotify");
 const { YtDlpPlugin } = require("@distube/yt-dlp");
+const { YouTubePlugin } = require("@distube/youtube");
 const { DeezerPlugin } = require("@distube/deezer");
 const { SoundCloudPlugin } = require("@distube/soundcloud");
 const srDb = require("../schemas/stream");
 const { run } = require("../otherEvents/twitch/streamStart");
-reuiqre("dotenv").config()
-
+const fs = require("fs");
+require("dotenv").config();
 module.exports = class extends Client {
   collection = {
     interactioncommands: new Collection(),
@@ -45,7 +46,18 @@ module.exports = class extends Client {
 
   distube = new DisTube(this, {
     plugins: [
-      new YtDlpPlugin(),
+      new YouTubePlugin({
+        cookies: JSON.parse(fs.readFileSync("cookies.json", "utf-8")), // use this extension to get cookies and make sure to select JSON format https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc?hl=en-US
+        ytdlOptions: {
+          requestOptions: {
+            headers: {
+              "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+            },
+          },
+          playerClients: ["WEB"],
+        },
+      }),
       new SoundCloudPlugin(),
       new SpotifyPlugin({
         api: {
@@ -54,9 +66,13 @@ module.exports = class extends Client {
           topTracksCountry: "UK",
         },
       }),
+      new DeezerPlugin(),
     ],
-    emitNewSongOnly: true,
-    savePreviousSongs: true,
+    emitAddListWhenCreatingQueue: true,
+    emitAddSongWhenCreatingQueue: true,
+      // // new YtDlpPlugin(),
+      // // new SoundCloudPlugin(),
+    // ],
   });
   constructor() {
     super({
@@ -262,3 +278,46 @@ module.exports = class extends Client {
     }
   };
 };
+function parseNetscapeCookieFile(data) {
+  const cookies = [];
+
+  try {
+    const lines = data.split("\n");
+
+    for (const line of lines) {
+      // Skip comments and empty lines
+      if (!line.trim() || line.startsWith("#")) {
+        continue;
+      }
+
+      // Split the line into fields (Netscape format has 7 fields)
+      const fields = line.split("\t");
+      if (fields.length < 7) {
+        continue;
+      }
+
+      // Extract cookie fields
+      const cookie = {
+        domain: fields[0],
+        include_subdomains: fields[1].toLowerCase() === "true",
+        path: fields[2],
+        secure: fields[3].toLowerCase() === "true",
+        expires: parseInt(fields[4], 10) || 0,
+        name: fields[5],
+        value: fields[6],
+      };
+
+      // Convert expires timestamp to ISO format if not 0
+      if (cookie.expires !== 0) {
+        cookie.expires_iso = new Date(cookie.expires * 1000).toISOString();
+      }
+
+      cookies.push(cookie);
+    }
+    console.log(cookies);
+
+    return cookies;
+  } catch (error) {
+    throw new Error(`Error reading cookie file: ${error.message}`);
+  }
+}

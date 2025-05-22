@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+
 const pollSchema = new mongoose.Schema({
   id: String,
   choice1: Array,
@@ -6,19 +7,38 @@ const pollSchema = new mongoose.Schema({
   choice3: Array,
   choice4: Array,
 });
+
 const counterSchema = new mongoose.Schema({
-    channelId: String,
-    name: String,
-    counterType: String,
+  channelId: String,
+  name: String,
+  counterType: String,
 });
+
 const autoRoleSchema = new mongoose.Schema({
-    autoRoleStatus: {
-        type: Boolean,
-        default: false,
-    },
-    autoRoleType: String,
-    role: String,
-})
+  autoRoleStatus: {
+    type: Boolean,
+    default: false,
+  },
+  autoRoleType: String,
+  role: String,
+});
+
+const aliasSchema = new mongoose.Schema({
+  commandName: {
+    type: String,
+    required: true,
+  },
+  alias: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
 const Schema = new mongoose.Schema({
   guildId: String,
   guildRules: String,
@@ -94,5 +114,17 @@ const Schema = new mongoose.Schema({
     tier: String,
   },
   counters: [counterSchema],
+  aliases: {
+    type: [aliasSchema],
+    validate: {
+      validator: function (aliases) {
+        const maxAliases = this.premium.status ? 100 : 10;
+        return aliases.length <= maxAliases;
+      },
+      message: props =>
+        `Alias limit exceeded. Maximum allowed: ${props.instance.premium.status ? 100 : 10}`,
+    },
+  },
 });
+
 module.exports = mongoose.model("guildSettings", Schema);
